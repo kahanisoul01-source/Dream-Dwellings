@@ -806,6 +806,30 @@ const ChatWidget = ({ property, recipientInfo, onClose, conversationId: initialC
     }, [conversationId]);
     
     useEffect(scrollToBottom, [messages]);
+    
+    // Effect to mark messages as read
+    useEffect(() => {
+        if (!conversationId || !currentUser || messages.length === 0) return;
+
+        const messagesToUpdate = messages
+            .filter(msg => msg.senderId !== currentUser.uid && !msg.readBy?.includes(currentUser.uid))
+            .map(msg => msg.id);
+
+        if (messagesToUpdate.length > 0) {
+            const batch = firestore.batch();
+            messagesToUpdate.forEach(messageId => {
+                const msgRef = firestore.collection('chats').doc(conversationId).collection('messages').doc(messageId);
+                batch.update(msgRef, {
+                    readBy: firebase.firestore.FieldValue.arrayUnion(currentUser.uid)
+                });
+            });
+
+            batch.commit().catch(err => {
+                console.error("Failed to mark messages as read:", err);
+            });
+        }
+    }, [messages, conversationId, currentUser]);
+
 
     const findOrCreateConversation = async () => {
         if (conversationId) return conversationId;
@@ -852,7 +876,8 @@ const ChatWidget = ({ property, recipientInfo, onClose, conversationId: initialC
         const messageData = {
             text: newMessage,
             senderId: currentUser.uid,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            readBy: [currentUser.uid]
         };
 
         try {
@@ -893,8 +918,23 @@ const ChatWidget = ({ property, recipientInfo, onClose, conversationId: initialC
             <div className="flex-1 p-4 overflow-y-auto chat-messages">
                 {messages.map(msg => (
                     <div key={msg.id} className={`flex mb-3 ${msg.senderId === currentUser.uid ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`rounded-lg px-4 py-2 max-w-xs ${msg.senderId === currentUser.uid ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-100'}`}>
-                            {msg.text}
+                        <div className={`rounded-lg px-3 pt-2 pb-2 max-w-xs relative ${msg.senderId === currentUser.uid ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-100'}`}>
+                            <p className={`break-words ${msg.senderId === currentUser.uid ? 'pr-8' : ''}`}>{msg.text}</p>
+                            {msg.senderId === currentUser.uid && (
+                                <div className="absolute bottom-1.5 right-1.5 flex items-center">
+                                    {msg.readBy && msg.readBy.length > 1 ? (
+                                        // Double tick (read)
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-sky-200">
+                                          <path fillRule="evenodd" d="M11.603 4.234a.75.75 0 00-1.06 1.06l5.25 5.25a.75.75 0 001.06 0l7.5-7.5a.75.75 0 10-1.06-1.06L16.5 8.879l-4.447-4.445zM4.234 11.603a.75.75 0 10-1.06 1.06l5.25 5.25a.75.75 0 001.06 0l7.5-7.5a.75.75 0 10-1.06-1.06L9.75 16.129l-4.447-4.445z" clipRule="evenodd" />
+                                        </svg>
+                                    ) : (
+                                        // Single tick (sent/delivered)
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-gray-300">
+                                          <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
+                                        </svg>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 ))}
